@@ -1,0 +1,15 @@
+artifact_uri: mlflow-artifacts:/0/3c10c26293934b509921b45dbfe3eefa/artifacts
+end_time: 1749051398523
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 3c10c26293934b509921b45dbfe3eefa
+run_name: gaudy-hare-335
+run_uuid: 3c10c26293934b509921b45dbfe3eefa
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1749051398479
+status: 4
+tags: []
+user_id: NUR

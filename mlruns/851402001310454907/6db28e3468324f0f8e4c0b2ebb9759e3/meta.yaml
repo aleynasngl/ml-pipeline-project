@@ -1,0 +1,15 @@
+artifact_uri: file:///C:/Users/NUR/Desktop/ml-pipeline-cloud/mlruns/851402001310454907/6db28e3468324f0f8e4c0b2ebb9759e3/artifacts
+end_time: 1749049104688
+entry_point_name: ''
+experiment_id: '851402001310454907'
+lifecycle_stage: active
+run_id: 6db28e3468324f0f8e4c0b2ebb9759e3
+run_name: tasteful-elk-203
+run_uuid: 6db28e3468324f0f8e4c0b2ebb9759e3
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1749049100209
+status: 3
+tags: []
+user_id: NUR

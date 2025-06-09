@@ -1,0 +1,15 @@
+artifact_uri: file:///C:/Users/NUR/Desktop/ml-pipeline-cloud/mlruns/851402001310454907/c392f0ffa6184ca3a7223321f0b25386/artifacts
+end_time: 1749050947409
+entry_point_name: ''
+experiment_id: '851402001310454907'
+lifecycle_stage: active
+run_id: c392f0ffa6184ca3a7223321f0b25386
+run_name: mysterious-seal-375
+run_uuid: c392f0ffa6184ca3a7223321f0b25386
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1749050943061
+status: 3
+tags: []
+user_id: NUR

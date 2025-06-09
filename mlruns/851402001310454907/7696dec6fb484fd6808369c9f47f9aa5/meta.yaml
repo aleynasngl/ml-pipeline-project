@@ -1,0 +1,15 @@
+artifact_uri: file:///C:/Users/NUR/Desktop/ml-pipeline-cloud/mlruns/851402001310454907/7696dec6fb484fd6808369c9f47f9aa5/artifacts
+end_time: 1749048197765
+entry_point_name: ''
+experiment_id: '851402001310454907'
+lifecycle_stage: active
+run_id: 7696dec6fb484fd6808369c9f47f9aa5
+run_name: loud-jay-758
+run_uuid: 7696dec6fb484fd6808369c9f47f9aa5
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1749048193198
+status: 3
+tags: []
+user_id: NUR

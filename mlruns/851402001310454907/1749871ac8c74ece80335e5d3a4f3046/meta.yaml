@@ -1,0 +1,15 @@
+artifact_uri: file:///C:/Users/NUR/Desktop/ml-pipeline-cloud/mlruns/851402001310454907/1749871ac8c74ece80335e5d3a4f3046/artifacts
+end_time: 1749048316910
+entry_point_name: ''
+experiment_id: '851402001310454907'
+lifecycle_stage: active
+run_id: 1749871ac8c74ece80335e5d3a4f3046
+run_name: receptive-kite-600
+run_uuid: 1749871ac8c74ece80335e5d3a4f3046
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1749048313309
+status: 3
+tags: []
+user_id: NUR

@@ -1,0 +1,15 @@
+artifact_uri: file:///C:/Users/NUR/Desktop/ml-pipeline-cloud/mlruns/851402001310454907/25fee453f5064963bfade8dd49f88c4e/artifacts
+end_time: 1749048557667
+entry_point_name: ''
+experiment_id: '851402001310454907'
+lifecycle_stage: active
+run_id: 25fee453f5064963bfade8dd49f88c4e
+run_name: youthful-roo-645
+run_uuid: 25fee453f5064963bfade8dd49f88c4e
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1749048554047
+status: 3
+tags: []
+user_id: NUR

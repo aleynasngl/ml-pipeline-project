@@ -1,0 +1,15 @@
+artifact_uri: file:///C:/Users/NUR/Desktop/ml-pipeline-cloud/mlruns/851402001310454907/9d5388ae759e474e8f5b24f7fe80eea6/artifacts
+end_time: 1749045811418
+entry_point_name: ''
+experiment_id: '851402001310454907'
+lifecycle_stage: active
+run_id: 9d5388ae759e474e8f5b24f7fe80eea6
+run_name: adorable-colt-417
+run_uuid: 9d5388ae759e474e8f5b24f7fe80eea6
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1749045806778
+status: 3
+tags: []
+user_id: NUR
