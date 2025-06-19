@@ -167,3 +167,4 @@ Model aşağıdaki metriklerle değerlendirilir:
 - F1-score
 
 CI/CD pipeline test - Thu Jun 19 19:12:50 +03 2025
+  
