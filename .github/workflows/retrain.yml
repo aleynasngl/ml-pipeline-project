@@ -1,16 +1,25 @@
-name: Weekly Retrain
+name: Weekly Retrain and Deploy
 
 on:
+  push:
+    branches:
+      - main
   schedule:
-    - cron: '0 4 * * 1'  # Her Pazartesi 04:00 UTC
+    - cron: '0 4 * * 1'  # Her Pazartesi 07:00 Türkiye saatiyle
 
 jobs:
   retrain:
+    name: Run Retraining Script
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -22,13 +31,43 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run retraining script
-        run: python retrain.py
-
-      - name: Commit updated model
         run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git add models/
-          git commit -m "🔁 Weekly retraining update" || echo "No changes to commit"
-          git push
+          python retrain.py
+
+  deploy:
+    name: Build & Deploy to Cloud Run
+    needs: retrain
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: ml-pipeline-cloud
+
+      - name: Build Docker image
+        run: |
+          docker build -t europe-west1-docker.pkg.dev/ml-pipeline-cloud/ml-repo/mlpipeline .
+
+      - name: Push Docker image
+        run: |
+          docker push europe-west1-docker.pkg.dev/ml-pipeline-cloud/ml-repo/mlpipeline
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy mlpipeline-service \
+            --image=europe-west1-docker.pkg.dev/ml-pipeline-cloud/ml-repo/mlpipeline \
+            --region=europe-west1 \
+            --platform=managed \
+            --allow-unauthenticated
+
+
 
