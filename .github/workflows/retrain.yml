@@ -1,0 +1,34 @@
+name: Weekly Retrain
+
+on:
+  schedule:
+    - cron: '0 4 * * 1'  # Her Pazartesi 04:00 UTC
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run retraining script
+        run: python retrain.py
+
+      - name: Commit updated model
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add models/
+          git commit -m "🔁 Weekly retraining update" || echo "No changes to commit"
+          git push
+
