@@ -5,7 +5,7 @@ on:
     branches:
       - main
   schedule:
-    - cron: '0 4 * * 1'  # Her Pazartesi 07:00 Türkiye saatiyle
+    - cron: '0 4 * * 1'  # Her Pazartesi 07:00 Türkiye saatiyle (UTC+3)
 
 jobs:
   retrain:
@@ -53,6 +53,10 @@ jobs:
         with:
           project_id: ml-pipeline-cloud
 
+      - name: Configure Docker for Google Artifact Registry
+        run: |
+          gcloud auth configure-docker europe-west1-docker.pkg.dev
+
       - name: Build Docker image
         run: |
           docker build -t europe-west1-docker.pkg.dev/ml-pipeline-cloud/ml-repo/mlpipeline .
@@ -68,6 +72,7 @@ jobs:
             --region=europe-west1 \
             --platform=managed \
             --allow-unauthenticated
+
 
 
 
