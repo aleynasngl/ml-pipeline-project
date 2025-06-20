@@ -14,6 +14,9 @@ import io
 from fastapi.middleware.cors import CORSMiddleware
 import json
 
+# Google Cloud Storage kütüphanesi
+from google.cloud import storage
+
 # Add the project root to Python path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
@@ -55,27 +58,29 @@ MODELS_DIR = os.path.join(project_root, "models")
 CLASSIFICATION_DIR = os.path.join(MODELS_DIR, "classification")
 REGRESSION_DIR = os.path.join(MODELS_DIR, "regression")
 
+# Google Cloud Storage bucket adı
+GCS_BUCKET_NAME = "mlpipeline-models"
+
+def upload_to_gcs(bucket_name: str, destination_blob_name: str, data: bytes):
+    """Bytes olarak gelen dosyayı Google Cloud Storage bucket'ına yükler"""
+    try:
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(destination_blob_name)
+        blob.upload_from_string(data)
+        logger.info(f"{destination_blob_name} dosyası {bucket_name} bucket'ına yüklendi.")
+    except Exception as e:
+        logger.error(f"Dosya GCS'ye yüklenirken hata: {str(e)}")
+        raise
+
 def determine_problem_type(df: pd.DataFrame, target_column: str) -> str:
-    """
-    Hedef değişkenin tipine göre problem tipini belirler
-    
-    Args:
-        df (pd.DataFrame): Veri seti
-        target_column (str): Hedef sütun adı
-        
-    Returns:
-        str: Problem tipi ('classification' veya 'regression')
-    """
     target = df[target_column]
     unique_values = target.nunique()
     
-    # Eğer hedef değişken kategorik ise veya benzersiz değer sayısı 10'dan az ise classification
     if target.dtype == 'object' or unique_values <= 10:
         return 'classification'
-    # Eğer hedef değişken sayısal ise ve benzersiz değer sayısı 10'dan fazla ise regression
     elif target.dtype in ['int64', 'float64'] and unique_values > 10:
         return 'regression'
-    # Varsayılan olarak classification
     else:
         return 'classification'
 
@@ -84,19 +89,13 @@ async def ml_operation(
     file: UploadFile = File(...),
     mode: Literal["train", "predict"] = Form(...)
 ):
-    """
-    CSV dosyası yükleyip model eğitimi veya tahmin yapar
-    
-    Args:
-        file (UploadFile): CSV dosyası
-        mode (Literal["train", "predict"]): İşlem modu ('train' veya 'predict')
-        
-    Returns:
-        MLResponse: İşlem sonuçları
-    """
     try:
-        # CSV dosyasını oku
+        # CSV dosyasını oku (bytes)
         contents = await file.read()
+
+        # **Yeni eklenen satır: GCS'ye yükle**
+        upload_to_gcs(GCS_BUCKET_NAME, "latest_train.csv", contents)
+
         df = pd.read_csv(io.BytesIO(contents))
         
         # Unnamed sütunlarını kaldır
@@ -105,8 +104,6 @@ async def ml_operation(
             df = df.drop(columns=unnamed_cols)
             logger.info(f"Unnamed sütunlar kaldırıldı: {unnamed_cols}")
         
-        # Hedef sütunu belirle
-        # Önce 'diagnosis' gibi anlamlı bir hedef ara
         possible_targets = [col for col in df.columns if 'diagnosis' in col.lower()]
         if possible_targets:
             target_column = possible_targets[0]
@@ -115,43 +112,36 @@ async def ml_operation(
             target_column = df.columns[-1]
             logger.info(f"Son sütun hedef olarak belirlendi: {target_column}")
         
-        # Eğer hedef sütun kategorik ise (örn. 'M'/'B'), sayısala çevir
         if df[target_column].dtype == 'object':
             unique_values = df[target_column].unique()
-            if len(unique_values) == 2:  # Binary classification
+            if len(unique_values) == 2:
                 value_map = {val: i for i, val in enumerate(unique_values)}
                 df[target_column] = df[target_column].map(value_map)
                 logger.info(f"Hedef sütun sayısala çevrildi: {value_map}")
         
-        # Problem tipini belirle
         problem_type = determine_problem_type(df, target_column)
         logger.info(f"Problem tipi belirlendi: {problem_type}")
         
-        # Sayısal ve kategorik özellikleri belirle
         numeric_features = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
         if target_column in numeric_features:
             numeric_features.remove(target_column)
         categorical_features = df.select_dtypes(include=['object']).columns.tolist()
         
-        # Pipeline oluştur
         pipeline = MLPipeline(
             numeric_features=numeric_features,
             categorical_features=categorical_features,
             target_column=target_column,
-            model_name='auto',  # Otomatik model seçimi
-            problem_type=problem_type  # Problem tipini pipeline'a bildir
+            model_name='auto',
+            problem_type=problem_type
         )
         
         if mode == "train":
-            # Model eğitimi
             results = pipeline.auto_train(df)
             
-            # En iyi modeli kaydet
             best_model_type = results['best_model']
             model_dir = os.path.join('models', problem_type, best_model_type)
             os.makedirs(model_dir, exist_ok=True)
             
-            # Model ve bilgilerini kaydet
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             model_data = {
                 'model': pipeline.best_model,
@@ -171,7 +161,6 @@ async def ml_operation(
             logger.info(f"En iyi model: {best_model_type}")
             logger.info(f"Model kaydedildi: {model_path}")
             
-            # Model bilgilerini serileştirilebilir formata dönüştür
             serializable_model_info = {
                 'model_type': problem_type,
                 'best_model': best_model_type,
@@ -192,12 +181,10 @@ async def ml_operation(
             )
             
         else:  # predict
-            # En son eğitilmiş modeli bul
             latest_model = None
             latest_info = None
             latest_timestamp = None
             
-            # Tüm model klasörlerini tara
             for root, dirs, files in os.walk('models'):
                 for file in files:
                     if file.endswith('.joblib'):
@@ -220,7 +207,6 @@ async def ml_operation(
             if latest_model is None:
                 raise HTTPException(status_code=400, detail="Eğitilmiş model bulunamadı. Önce model eğitimi yapın.")
             
-            # Tahmin yap
             predictions = latest_model.predict(df)
             
             return MLResponse(
