@@ -7,19 +7,22 @@ on:
 
 jobs:
   deploy:
-    name: Build and Deploy to Google Cloud Run
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v1
         with:
           project_id: ml-pipeline-cloud
-          service_account_key: ${{ secrets.GCP_CREDENTIALS }}
-          export_default_credentials: true
+          install_components: 'gke-gcloud-auth-plugin'
 
       - name: Build Docker image
         run: |
@@ -36,4 +39,5 @@ jobs:
             --region=europe-west1 \
             --platform=managed \
             --allow-unauthenticated
+
 
