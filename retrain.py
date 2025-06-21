@@ -13,7 +13,31 @@ from src.pipeline import MLPipeline
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+BUCKET_NAME = "mlpipeline-models"
+DATA_DIR = "data"
+DATA_PATH = os.path.join(DATA_DIR, "latest_train.csv")
+
+os.makedirs(DATA_DIR, exist_ok=True)
+
+def get_latest_csv_from_bucket(bucket_name: str, prefix: str = "") -> str:
+    """
+    Bucket içindeki en son yüklenen CSV dosyasının adını bulur.
+    """
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    blobs = list(bucket.list_blobs(prefix=prefix))
+
+    csv_blobs = [blob for blob in blobs if blob.name.endswith(".csv")]
+    if not csv_blobs:
+        raise FileNotFoundError("Bucket'ta CSV dosyası bulunamadı.")
+
+    latest_blob = max(csv_blobs, key=lambda b: b.updated)
+    return latest_blob.name
+
 def download_from_gcs(bucket_name: str, source_blob_name: str, destination_file_name: str):
+    """
+    Bucket'tan dosya indirir.
+    """
     try:
         client = storage.Client()
         bucket = client.bucket(bucket_name)
@@ -25,6 +49,9 @@ def download_from_gcs(bucket_name: str, source_blob_name: str, destination_file_
         raise
 
 def upload_to_gcs(bucket_name, source_file_path, destination_blob_name):
+    """
+    Modeli bucket'a yükler.
+    """
     try:
         client = storage.Client()
         bucket = client.bucket(bucket_name)
@@ -35,16 +62,13 @@ def upload_to_gcs(bucket_name, source_file_path, destination_blob_name):
         logger.error(f"Modeli GCS'ye yüklerken hata oluştu: {e}")
         raise
 
-DATA_PATH = "data/latest_train.csv"
-BUCKET_NAME = "mlpipeline-models"
-GCS_FILE_NAME = "latest_train.csv"
-
-os.makedirs("data", exist_ok=True)
-
+# --- En son CSV dosyasını indir ---
 try:
-    download_from_gcs(BUCKET_NAME, GCS_FILE_NAME, DATA_PATH)
-except Exception:
-    logger.error("Veri indirilemedi. Retrain iptal edildi.")
+    latest_csv_name = get_latest_csv_from_bucket(BUCKET_NAME)
+    logger.info(f"En son CSV dosyası bucket'tan çekiliyor: {latest_csv_name}")
+    download_from_gcs(BUCKET_NAME, latest_csv_name, DATA_PATH)
+except Exception as e:
+    logger.error(f"Veri indirilemedi: {str(e)} Retrain iptal edildi.")
     sys.exit(1)
 
 if not os.path.exists(DATA_PATH):
@@ -57,11 +81,14 @@ except Exception as e:
     logger.error(f"Veri okuma hatası: {e}")
     sys.exit(1)
 
+# Gereksiz sütunları at
 df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
 
+# Hedef sütunu bul
 possible_targets = [col for col in df.columns if 'diagnosis' in col.lower()]
 target_column = possible_targets[0] if possible_targets else df.columns[-1]
 
+# İkili sınıflandırma için string hedefi sayısala çevir
 if df[target_column].dtype == 'object':
     unique_values = df[target_column].unique()
     if len(unique_values) == 2:
