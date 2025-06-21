@@ -54,12 +54,13 @@ REGRESSION_DIR = os.path.join(MODELS_DIR, "regression")
 GCS_BUCKET_NAME = "mlpipeline-models"
 
 def upload_to_gcs(bucket_name: str, destination_blob_name: str, data: bytes):
+    logger.info(f"GCS yüklemesi başlıyor: bucket={bucket_name}, blob={destination_blob_name}")
     try:
         client = storage.Client()
         bucket = client.bucket(bucket_name)
         blob = bucket.blob(destination_blob_name)
         blob.upload_from_string(data)
-        logger.info(f"{destination_blob_name} dosyası {bucket_name} bucket'ına yüklendi.")
+        logger.info(f"GCS yüklemesi başarılı: {destination_blob_name}")
     except Exception as e:
         logger.error(f"Dosya GCS'ye yüklenirken hata: {str(e)}")
         raise
@@ -88,7 +89,7 @@ async def ml_operation(
         original_filename = os.path.splitext(file.filename)[0].replace(" ", "_")
         gcs_filename = f"datasets/{original_filename}_{timestamp}.csv"
 
-        # GCS'ye yükle
+        logger.info(f"upload_to_gcs fonksiyonu çağrılacak, dosya adı: {gcs_filename}")
         upload_to_gcs(GCS_BUCKET_NAME, gcs_filename, contents)
 
         df = pd.read_csv(io.BytesIO(contents))
