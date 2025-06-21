@@ -67,7 +67,7 @@ def upload_to_gcs(bucket_name: str, destination_blob_name: str, data: bytes):
 def determine_problem_type(df: pd.DataFrame, target_column: str) -> str:
     target = df[target_column]
     unique_values = target.nunique()
-    
+
     if target.dtype == 'object' or unique_values <= 10:
         return 'classification'
     elif target.dtype in ['int64', 'float64'] and unique_values > 10:
@@ -82,15 +82,22 @@ async def ml_operation(
 ):
     try:
         contents = await file.read()
-        upload_to_gcs(GCS_BUCKET_NAME, "latest_train.csv", contents)
+
+        # Timestamp ve dosya ismini oluştur
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        original_filename = os.path.splitext(file.filename)[0].replace(" ", "_")
+        gcs_filename = f"datasets/{original_filename}_{timestamp}.csv"
+
+        # GCS'ye yükle
+        upload_to_gcs(GCS_BUCKET_NAME, gcs_filename, contents)
 
         df = pd.read_csv(io.BytesIO(contents))
-        
+
         unnamed_cols = [col for col in df.columns if 'Unnamed' in col]
         if unnamed_cols:
             df = df.drop(columns=unnamed_cols)
             logger.info(f"Unnamed sütunlar kaldırıldı: {unnamed_cols}")
-        
+
         possible_targets = [col for col in df.columns if 'diagnosis' in col.lower()]
         if possible_targets:
             target_column = possible_targets[0]
@@ -98,22 +105,22 @@ async def ml_operation(
         else:
             target_column = df.columns[-1]
             logger.info(f"Son sütun hedef olarak belirlendi: {target_column}")
-        
+
         if df[target_column].dtype == 'object':
             unique_values = df[target_column].unique()
             if len(unique_values) == 2:
                 value_map = {val: i for i, val in enumerate(unique_values)}
                 df[target_column] = df[target_column].map(value_map)
                 logger.info(f"Hedef sütun sayısala çevrildi: {value_map}")
-        
+
         problem_type = determine_problem_type(df, target_column)
         logger.info(f"Problem tipi belirlendi: {problem_type}")
-        
+
         numeric_features = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
         if target_column in numeric_features:
             numeric_features.remove(target_column)
         categorical_features = df.select_dtypes(include=['object']).columns.tolist()
-        
+
         pipeline = MLPipeline(
             numeric_features=numeric_features,
             categorical_features=categorical_features,
@@ -121,14 +128,14 @@ async def ml_operation(
             model_name='auto',
             problem_type=problem_type
         )
-        
+
         if mode == "train":
             results = pipeline.auto_train(df)
-            
+
             best_model_type = results['best_model']
             model_dir = os.path.join('models', problem_type, best_model_type)
             os.makedirs(model_dir, exist_ok=True)
-            
+
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             model_data = {
                 'model': pipeline.best_model,
@@ -141,13 +148,13 @@ async def ml_operation(
                 'numeric_features': numeric_features,
                 'categorical_features': categorical_features
             }
-            
+
             model_path = os.path.join(model_dir, f"model_{timestamp}.joblib")
             joblib.dump(model_data, model_path)
-            
+
             logger.info(f"En iyi model: {best_model_type}")
             logger.info(f"Model kaydedildi: {model_path}")
-            
+
             serializable_model_info = {
                 'model_type': problem_type,
                 'best_model': best_model_type,
@@ -158,7 +165,7 @@ async def ml_operation(
                 'numeric_features': numeric_features,
                 'categorical_features': categorical_features
             }
-            
+
             return MLResponse(
                 mode="train",
                 status="success",
@@ -166,12 +173,12 @@ async def ml_operation(
                 model_info=serializable_model_info,
                 timestamp=timestamp
             )
-            
+
         else:
             latest_model = None
             latest_info = None
             latest_timestamp = None
-            
+
             for root, dirs, files in os.walk('models'):
                 for file in files:
                     if file.endswith('.joblib'):
@@ -190,12 +197,12 @@ async def ml_operation(
                                 'categorical_features': model_data['categorical_features']
                             }
                             latest_model = model_data['model']
-            
+
             if latest_model is None:
                 raise HTTPException(status_code=400, detail="Eğitilmiş model bulunamadı. Önce model eğitimi yapın.")
-            
+
             predictions = latest_model.predict(df)
-            
+
             return MLResponse(
                 mode="predict",
                 status="success",
@@ -204,7 +211,7 @@ async def ml_operation(
                 model_info=latest_info,
                 timestamp=datetime.now().isoformat()
             )
-            
+
     except Exception as e:
         logger.error(f"ML işlemi sırasında hata: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
