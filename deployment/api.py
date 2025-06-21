@@ -14,28 +14,23 @@ import io
 from fastapi.middleware.cors import CORSMiddleware
 import json
 
-# Google Cloud Storage kütüphanesi
 from google.cloud import storage
 
-# Add the project root to Python path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
 sys.path.append(project_root)
 
 from src.pipeline import MLPipeline
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# FastAPI uygulamasını oluştur
 app = FastAPI(
     title="ML Pipeline API",
     description="Otomatik ML Pipeline API'si - CSV dosyası yükleyip train veya predict yapın",
     version="1.0.0"
 )
 
-# CORS ayarları
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -45,7 +40,6 @@ app.add_middleware(
 )
 
 class MLResponse(BaseModel):
-    """ML işlem yanıtı için veri modeli"""
     mode: str
     status: str
     message: str
@@ -53,16 +47,13 @@ class MLResponse(BaseModel):
     predictions: Optional[List[Any]] = None
     timestamp: str
 
-# Models klasörlerini tanımla
 MODELS_DIR = os.path.join(project_root, "models")
 CLASSIFICATION_DIR = os.path.join(MODELS_DIR, "classification")
 REGRESSION_DIR = os.path.join(MODELS_DIR, "regression")
 
-# Google Cloud Storage bucket adı
 GCS_BUCKET_NAME = "mlpipeline-models"
 
 def upload_to_gcs(bucket_name: str, destination_blob_name: str, data: bytes):
-    """Bytes olarak gelen dosyayı Google Cloud Storage bucket'ına yükler"""
     try:
         client = storage.Client()
         bucket = client.bucket(bucket_name)
@@ -90,15 +81,11 @@ async def ml_operation(
     mode: Literal["train", "predict"] = Form(...)
 ):
     try:
-        # CSV dosyasını oku (bytes)
         contents = await file.read()
-
-        # **Yeni eklenen satır: GCS'ye yükle**
         upload_to_gcs(GCS_BUCKET_NAME, "latest_train.csv", contents)
 
         df = pd.read_csv(io.BytesIO(contents))
         
-        # Unnamed sütunlarını kaldır
         unnamed_cols = [col for col in df.columns if 'Unnamed' in col]
         if unnamed_cols:
             df = df.drop(columns=unnamed_cols)
@@ -180,7 +167,7 @@ async def ml_operation(
                 timestamp=timestamp
             )
             
-        else:  # predict
+        else:
             latest_model = None
             latest_info = None
             latest_timestamp = None
@@ -224,7 +211,6 @@ async def ml_operation(
 
 @app.get("/")
 async def root():
-    """API kök endpoint'i"""
     return {
         "message": "ML Pipeline API'sine hoş geldiniz",
         "endpoints": {
