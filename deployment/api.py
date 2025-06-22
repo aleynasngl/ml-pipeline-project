@@ -11,6 +11,7 @@ from datetime import datetime
 import io
 from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import storage
+from data.preprocessing import preprocess_data, handle_missing_values
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -68,44 +69,28 @@ async def ml_operation(
     try:
         contents = await file.read()
         df = pd.read_csv(io.BytesIO(contents))
-
         df.columns = df.columns.str.strip()
         df = df.dropna(axis=1, how='all')
         df = df.loc[:, ~df.columns.duplicated()]
+        df = handle_missing_values(df)
 
         if mode == "train":
             from src.pipeline import MLPipeline
 
             target_column = df.columns[-1]
-            value_maps = {}
-
-            if df[target_column].dtype == 'object':
-                unique_values = df[target_column].unique()
-                val_map = {val: i for i, val in enumerate(unique_values)}
-                df[target_column] = df[target_column].map(val_map)
-                value_maps[target_column] = val_map
-
             problem_type = "classification" if df[target_column].nunique() <= 10 else "regression"
 
-            numeric_features = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
-            if target_column in numeric_features:
-                numeric_features.remove(target_column)
-            categorical_features = df.select_dtypes(include=['object']).columns.tolist()
-
-            for col in categorical_features:
-                val_map = {val: i for i, val in enumerate(df[col].unique())}
-                df[col] = df[col].map(val_map)
-                value_maps[col] = val_map
+            X_train_scaled, X_test_scaled, y_train, y_test = preprocess_data(df, target_column)
 
             pipeline = MLPipeline(
-                numeric_features=numeric_features,
-                categorical_features=categorical_features,
+                numeric_features=[],  # artık preprocessing yaptı
+                categorical_features=[],
                 target_column=target_column,
                 model_name='auto',
                 problem_type=problem_type
             )
 
-            results = pipeline.auto_train(df)
+            results = pipeline.auto_train_preprocessed(X_train_scaled, y_train, X_test_scaled, y_test)
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             model_data = {
@@ -113,12 +98,10 @@ async def ml_operation(
                 'model_type': problem_type,
                 'best_model': results['best_model'],
                 'metrics': results['metrics'],
-                'feature_importance': results['feature_importance'],
                 'timestamp': timestamp,
                 'target_column': target_column,
-                'numeric_features': numeric_features,
-                'categorical_features': categorical_features,
-                'value_maps': value_maps
+                'scaler': results['scaler'],
+                'columns': df.drop(columns=[target_column]).columns.tolist()
             }
 
             joblib.dump(model_data, "/tmp/best_model.joblib")
@@ -140,21 +123,15 @@ async def ml_operation(
         elif mode == "predict":
             model_data = download_best_model_from_gcs()
             model = model_data['model']
-            numeric_features = model_data['numeric_features']
-            categorical_features = model_data['categorical_features']
-            value_maps = model_data.get('value_maps', {})
+            target_column = model_data['target_column']
+            columns = model_data['columns']
+            scaler = model_data['scaler']
 
-            for col in categorical_features:
-                if col in df.columns and col in value_maps:
-                    df[col] = df[col].map(value_maps[col])
+            df = df[columns]  # sadece eğitimdeki feature'lar
+            df = handle_missing_values(df)
+            df_scaled = scaler.transform(df)
 
-            expected_columns = numeric_features + categorical_features
-            missing = [col for col in expected_columns if col not in df.columns]
-            if missing:
-                raise HTTPException(status_code=400, detail=f"Eksik kolonlar: {missing}")
-
-            df = df[expected_columns]
-            predictions = model.predict(df)
+            predictions = model.predict(df_scaled)
 
             return MLResponse(
                 mode="predict",
