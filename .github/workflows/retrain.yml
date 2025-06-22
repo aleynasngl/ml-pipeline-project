@@ -1,11 +1,12 @@
 name: Weekly Retrain and Deploy
 
 on:
+  workflow_dispatch:        # Elle başlatmayı mümkün kılar
   push:
     branches:
       - main
   schedule:
-    - cron: '0 4 * * 1'  # Her Pazartesi 07:00 Türkiye saatiyle (UTC+3)
+    - cron: '0 4 * * 1'      # Her Pazartesi 07:00 Türkiye saati (UTC+3)
 
 jobs:
   retrain:
@@ -28,6 +29,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Run retraining script
@@ -72,7 +74,4 @@ jobs:
             --region=europe-west1 \
             --platform=managed \
             --allow-unauthenticated
-
-
-
 
