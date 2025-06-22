@@ -75,7 +75,6 @@ async def ml_operation(
             logger.info(f"Unnamed sütunlar kaldırıldı: {unnamed_cols}")
 
         if mode == "train":
-            # Burada eğitim yapılacak
             from src.pipeline import MLPipeline
 
             possible_targets = [col for col in df.columns if 'diagnosis' in col.lower()]
@@ -122,14 +121,12 @@ async def ml_operation(
                 'categorical_features': categorical_features
             }
 
-            # Modeli local kaydet + GCS'ye yükle (en iyi modeli güncelle)
             model_dir = os.path.join("models", problem_type, results['best_model'])
             os.makedirs(model_dir, exist_ok=True)
             model_path = os.path.join(model_dir, f"model_{timestamp}.joblib")
             joblib.dump(model_data, model_path)
             logger.info(f"Model kaydedildi: {model_path}")
 
-            # En iyi modeli ortak path'e kopyala GCS için
             joblib.dump(model_data, "/tmp/best_model.joblib")
             upload_model_to_gcs("/tmp/best_model.joblib", BEST_MODEL_PATH_IN_BUCKET)
 
@@ -155,6 +152,10 @@ async def ml_operation(
         elif mode == "predict":
             model_data = download_best_model_from_gcs()
             model = model_data['model']
+
+            feature_columns = model_data['numeric_features'] + model_data['categorical_features']
+            df = df[feature_columns]
+
             predictions = model.predict(df)
 
             return MLResponse(
