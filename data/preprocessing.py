@@ -15,44 +15,25 @@ def preprocess_data(
     target_column: str,
     test_size: float = 0.2,
     random_state: int = 42
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Preprocess the data by splitting features and target, scaling features,
-    and splitting into train and test sets
-    
-    Args:
-        data (pd.DataFrame): Input dataframe
-        target_column (str): Name of the target column
-        test_size (float): Proportion of data to use for testing
-        random_state (int): Random seed for reproducibility
-        
-    Returns:
-        Tuple containing X_train, X_test, y_train, y_test
-    """
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, StandardScaler, list]:
     try:
-        # Separate features and target
         X = data.drop(columns=[target_column])
         y = data[target_column]
-        
-        logger.info(f"Features shape: {X.shape}")
-        logger.info(f"Target shape: {y.shape}")
-        
-        # Split the data
+
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=test_size, random_state=random_state
         )
-        
-        # Scale the features
+
         scaler = StandardScaler()
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
-        
-        logger.info("Data preprocessing completed successfully")
-        return X_train_scaled, X_test_scaled, y_train, y_test
-        
+
+        return X_train_scaled, X_test_scaled, y_train, y_test, scaler, X.columns.tolist()
+
     except Exception as e:
         logger.error(f"Error in preprocessing: {str(e)}")
         raise
+
 
 def handle_missing_values(data: pd.DataFrame, strategy: str = 'mean') -> pd.DataFrame:
     """

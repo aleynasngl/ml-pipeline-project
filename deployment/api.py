@@ -80,7 +80,7 @@ async def ml_operation(
             target_column = df.columns[-1]
             problem_type = "classification" if df[target_column].nunique() <= 10 else "regression"
 
-            X_train_scaled, X_test_scaled, y_train, y_test = preprocess_data(df, target_column)
+            X_train_scaled, X_test_scaled, y_train, y_test, scaler, used_columns = preprocess_data(df, target_column)
 
             pipeline = MLPipeline(
                 numeric_features=[],
@@ -100,8 +100,8 @@ async def ml_operation(
                 'metrics': results['metrics'],
                 'timestamp': timestamp,
                 'target_column': target_column,
-                'scaler': results['scaler'],
-                'columns': df.drop(columns=[target_column]).columns.tolist()
+                'scaler': scaler,
+                'columns': used_columns
             }
 
             joblib.dump(model_data, "/tmp/best_model.joblib")
@@ -127,14 +127,21 @@ async def ml_operation(
             columns = model_data['columns']
             scaler = model_data['scaler']
 
-            # Tahmin verisinden hedef sütunı çıkar
             if target_column in df.columns:
                 df = df.drop(columns=[target_column])
 
-            df = df[columns]  # sadece egitimdeki feature'lar
             df = handle_missing_values(df)
-            df_scaled = scaler.transform(df)
 
+            # Eksik kolon kontrolü
+            missing = [col for col in columns if col not in df.columns]
+            if missing:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Tahmin verisinde eksik kolon(lar) var: {missing}"
+                )
+
+            df = df[columns]
+            df_scaled = scaler.transform(df)
             predictions = model.predict(df_scaled)
 
             return MLResponse(
