@@ -31,11 +31,12 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Set Kaggle credentials from GitHub Secrets
+      - name: Set up kaggle.json credentials
         run: |
           mkdir -p ~/.config/kaggle
-          echo "{\"username\":\"${{ secrets.KAGGLE_USERNAME }}\",\"key\":\"${{ secrets.KAGGLE_KEY }}\"}" > ~/.config/kaggle/kaggle.json
+          echo '${{ secrets.KAGGLE_JSON }}' > ~/.config/kaggle/kaggle.json
           chmod 600 ~/.config/kaggle/kaggle.json
+        shell: bash
 
       - name: Run retraining script
         run: |
