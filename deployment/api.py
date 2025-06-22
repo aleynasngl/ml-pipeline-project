@@ -1,3 +1,4 @@
+# --- SENİN ORJİNAL DOSYANIN İÇERİĞİ BAŞI ---
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -225,6 +226,34 @@ async def root():
             "/ml": "CSV dosyası yükleyip train veya predict işlemi yapmak için"
         }
     }
+
+# ----------- BURAYA ALTTAKİ KISMI EKLE -----------
+
+import subprocess
+from fastapi import BackgroundTasks
+
+@app.post("/retrain")
+async def retrain_model(background_tasks: BackgroundTasks):
+    """
+    Arka planda retrain.py scriptini çalıştırır.
+    """
+    def run_retrain():
+        try:
+            result = subprocess.run(
+                [sys.executable, os.path.join(project_root, "retrain.py")],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            logger.info("Retrain scripti başarıyla çalıştı:\n" + result.stdout)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Retrain scripti hata verdi:\n{e.stderr}")
+
+    background_tasks.add_task(run_retrain)
+
+    return {"status": "success", "message": "Retrain işlemi arka planda başlatıldı."}
+
+# ---------------------------------------------
 
 if __name__ == "__main__":
     import uvicorn
