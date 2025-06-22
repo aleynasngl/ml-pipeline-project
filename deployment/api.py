@@ -80,6 +80,7 @@ async def ml_operation(
             possible_targets = [col for col in df.columns if 'diagnosis' in col.lower()]
             target_column = possible_targets[0] if possible_targets else df.columns[-1]
 
+            value_maps = {}
             if df[target_column].dtype == 'object':
                 unique_values = df[target_column].unique()
                 if len(unique_values) == 2:
@@ -97,6 +98,12 @@ async def ml_operation(
             if target_column in numeric_features:
                 numeric_features.remove(target_column)
             categorical_features = df.select_dtypes(include=['object']).columns.tolist()
+
+            for col in categorical_features:
+                unique_vals = df[col].unique()
+                val_map = {val: i for i, val in enumerate(unique_vals)}
+                value_maps[col] = val_map
+                df[col] = df[col].map(val_map)
 
             pipeline = MLPipeline(
                 numeric_features=numeric_features,
@@ -118,7 +125,8 @@ async def ml_operation(
                 'timestamp': timestamp,
                 'target_column': target_column,
                 'numeric_features': numeric_features,
-                'categorical_features': categorical_features
+                'categorical_features': categorical_features,
+                'value_maps': value_maps
             }
 
             model_dir = os.path.join("models", problem_type, results['best_model'])
@@ -152,6 +160,11 @@ async def ml_operation(
         elif mode == "predict":
             model_data = download_best_model_from_gcs()
             model = model_data['model']
+
+            value_maps = model_data.get('value_maps', {})
+            for col, val_map in value_maps.items():
+                if col in df.columns:
+                    df[col] = df[col].map(val_map)
 
             feature_columns = model_data['numeric_features'] + model_data['categorical_features']
             df = df[feature_columns]
