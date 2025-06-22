@@ -7,6 +7,7 @@ from kaggle.api.kaggle_api_extended import KaggleApi
 from src.pipeline import MLPipeline
 from datetime import datetime
 import joblib
+from google.cloud import storage
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -14,17 +15,24 @@ logger = logging.getLogger(__name__)
 DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 
+GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME", "ml-pipeline-models-bucket")
+storage_client = storage.Client()
+
+def upload_model_to_gcs(local_path: str, bucket_path: str):
+    bucket = storage_client.bucket(GCS_BUCKET_NAME)
+    blob = bucket.blob(bucket_path)
+    blob.upload_from_filename(local_path)
+    logger.info(f"Model {bucket_path} olarak bucket'a yüklendi.")
+
 def download_dataset_from_kaggle(dataset_name: str, file_name: str, download_path: str):
     try:
         api = KaggleApi()
         api.authenticate()
         logger.info(f"{file_name} Kaggle datasetinden indiriliyor...")
 
-        # Dosyayı indir, fonksiyonun döndürdüğü yol
         result = api.dataset_download_file(dataset_name, file_name, path=download_path, force=True)
         logger.info(f"dataset_download_file fonksiyonu dönüş değeri: {result}")
 
-        # İndirilen dizindeki dosyaları listele
         files = os.listdir(download_path)
         logger.info(f"{download_path} içeriği: {files}")
 
@@ -33,7 +41,6 @@ def download_dataset_from_kaggle(dataset_name: str, file_name: str, download_pat
             logger.info(f"{file_name} bulundu: {full_path}")
             return full_path
 
-        # Eğer zip dosyası varsa aç
         zip_files = [f for f in files if f.endswith(".zip")]
         if zip_files:
             zip_path = os.path.join(download_path, zip_files[0])
@@ -53,25 +60,27 @@ def download_dataset_from_kaggle(dataset_name: str, file_name: str, download_pat
         logger.error(f"Kaggle'dan dosya indirilemedi: {e}")
         sys.exit(1)
 
+def save_best_model_locally(models_info):
+    best_model = None
+    best_metric = -float('inf')
+    for info in models_info:
+        acc = info['metrics'].get('accuracy', None)
+        if acc is not None and acc > best_metric:
+            best_metric = acc
+            best_model = info
+    return best_model
+
 def main():
-    # İstediğin Kaggle dataset path ve csv dosya ismi
     dataset_name = "uciml/breast-cancer-wisconsin-data"
     file_name = "data.csv"
-
-    # Dataset indir ve csv yolunu al
     csv_path = download_dataset_from_kaggle(dataset_name, file_name, DATA_DIR)
 
-    # Veri oku
     df = pd.read_csv(csv_path)
-
-    # Gereksiz Unnamed sütunları çıkar
     df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
 
-    # Hedef sütunu bul (diagnosis içeren varsa onu al)
     possible_targets = [col for col in df.columns if 'diagnosis' in col.lower()]
     target_column = possible_targets[0] if possible_targets else df.columns[-1]
 
-    # Hedef ikili string ise sayısala çevir
     if df[target_column].dtype == 'object':
         unique_values = df[target_column].unique()
         if len(unique_values) == 2:
@@ -116,8 +125,27 @@ def main():
     os.makedirs(model_dir, exist_ok=True)
     model_path = os.path.join(model_dir, f"model_{timestamp}.joblib")
     joblib.dump(model_data, model_path)
-
     logger.info(f"Model retrain edildi ve kaydedildi: {model_path}")
+
+    bucket_model_path = f"models/{problem_type}/{results['best_model']}/model_{timestamp}.joblib"
+    upload_model_to_gcs(model_path, bucket_model_path)
+
+    # Bucket'taki modelleri indirip kontrol et
+    bucket = storage_client.bucket(GCS_BUCKET_NAME)
+    blobs = list(bucket.list_blobs(prefix=f"models/{problem_type}/"))
+    models_info = []
+    for blob in blobs:
+        if blob.name.endswith(".joblib"):
+            local_model_path = os.path.join("/tmp", os.path.basename(blob.name))
+            blob.download_to_filename(local_model_path)
+            model_info = joblib.load(local_model_path)
+            models_info.append({'path': local_model_path, 'metrics': model_info.get('metrics', {})})
+
+    best_model_info = save_best_model_locally(models_info)
+    if best_model_info:
+        best_blob = bucket.blob("models/best_model.joblib")
+        best_blob.upload_from_filename(best_model_info['path'])
+        logger.info(f"En iyi model güncellendi: models/best_model.joblib")
 
 if __name__ == "__main__":
     main()

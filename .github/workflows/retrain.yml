@@ -11,6 +11,8 @@ jobs:
   retrain:
     name: Run Retraining Script
     runs-on: ubuntu-latest
+    env:
+      GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
 
     steps:
       - name: Checkout repository
@@ -46,6 +48,8 @@ jobs:
     name: Build & Deploy to Cloud Run
     needs: retrain
     runs-on: ubuntu-latest
+    env:
+      GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
 
     steps:
       - name: Checkout repository
@@ -80,4 +84,5 @@ jobs:
             --region=europe-west1 \
             --platform=managed \
             --allow-unauthenticated
+
 
