@@ -70,33 +70,22 @@ async def ml_operation(
         df = pd.read_csv(io.BytesIO(contents))
 
         df.columns = df.columns.str.strip()
-        df = df.loc[:, ~df.columns.duplicated()]
         df = df.dropna(axis=1, how='all')
-
-        unnamed_cols = [col for col in df.columns if 'Unnamed' in col]
-        if unnamed_cols:
-            df = df.drop(columns=unnamed_cols)
-            logger.info(f"Unnamed sütunlar kaldırıldı: {unnamed_cols}")
+        df = df.loc[:, ~df.columns.duplicated()]
 
         if mode == "train":
             from src.pipeline import MLPipeline
 
-            possible_targets = [col for col in df.columns if 'diagnosis' in col.lower() or col.lower() == 'target']
-            target_column = possible_targets[0] if possible_targets else df.columns[-1]
-
+            target_column = df.columns[-1]
             value_maps = {}
+
             if df[target_column].dtype == 'object':
                 unique_values = df[target_column].unique()
-                if len(unique_values) == 2:
-                    value_map = {val: i for i, val in enumerate(unique_values)}
-                    df[target_column] = df[target_column].map(value_map)
-                    logger.info(f"Hedef sütun sayısala çevrildi: {value_map}")
+                val_map = {val: i for i, val in enumerate(unique_values)}
+                df[target_column] = df[target_column].map(val_map)
+                value_maps[target_column] = val_map
 
-            unique_vals = df[target_column].nunique()
-            if df[target_column].dtype == 'object' or unique_vals <= 10:
-                problem_type = "classification"
-            else:
-                problem_type = "regression"
+            problem_type = "classification" if df[target_column].nunique() <= 10 else "regression"
 
             numeric_features = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
             if target_column in numeric_features:
@@ -104,10 +93,9 @@ async def ml_operation(
             categorical_features = df.select_dtypes(include=['object']).columns.tolist()
 
             for col in categorical_features:
-                unique_vals = df[col].unique()
-                val_map = {val: i for i, val in enumerate(unique_vals)}
-                value_maps[col] = val_map
+                val_map = {val: i for i, val in enumerate(df[col].unique())}
                 df[col] = df[col].map(val_map)
+                value_maps[col] = val_map
 
             pipeline = MLPipeline(
                 numeric_features=numeric_features,
@@ -133,105 +121,65 @@ async def ml_operation(
                 'value_maps': value_maps
             }
 
-            model_dir = os.path.join("models", problem_type, results['best_model'])
-            os.makedirs(model_dir, exist_ok=True)
-            model_path = os.path.join(model_dir, f"model_{timestamp}.joblib")
-            joblib.dump(model_data, model_path)
-            logger.info(f"Model kaydedildi: {model_path}")
-
             joblib.dump(model_data, "/tmp/best_model.joblib")
             upload_model_to_gcs("/tmp/best_model.joblib", BEST_MODEL_PATH_IN_BUCKET)
-
-            serializable_model_info = {
-                'model_type': problem_type,
-                'best_model': results['best_model'],
-                'metrics': results['metrics'],
-                'feature_importance': results['feature_importance'].tolist() if isinstance(results['feature_importance'], np.ndarray) else results['feature_importance'],
-                'timestamp': timestamp,
-                'target_column': target_column,
-                'numeric_features': numeric_features,
-                'categorical_features': categorical_features
-            }
 
             return MLResponse(
                 mode="train",
                 status="success",
-                message=f"Model başarıyla eğitildi ve kaydedildi. En iyi model: {results['best_model']}",
-                model_info=serializable_model_info,
+                message=f"Model başarıyla eğitildi: {results['best_model']}",
+                model_info={
+                    'model_type': problem_type,
+                    'best_model': results['best_model'],
+                    'metrics': results['metrics'],
+                    'timestamp': timestamp
+                },
                 timestamp=timestamp
             )
 
         elif mode == "predict":
             model_data = download_best_model_from_gcs()
             model = model_data['model']
-
+            numeric_features = model_data['numeric_features']
+            categorical_features = model_data['categorical_features']
             value_maps = model_data.get('value_maps', {})
-            for col, val_map in value_maps.items():
-                if col in df.columns:
-                    df[col] = df[col].map(val_map)
 
-            feature_columns = model_data['numeric_features'] + model_data['categorical_features']
-            df = df[feature_columns]
+            for col in categorical_features:
+                if col in df.columns and col in value_maps:
+                    df[col] = df[col].map(value_maps[col])
 
+            expected_columns = numeric_features + categorical_features
+            missing = [col for col in expected_columns if col not in df.columns]
+            if missing:
+                raise HTTPException(status_code=400, detail=f"Eksik kolonlar: {missing}")
+
+            df = df[expected_columns]
             predictions = model.predict(df)
 
             return MLResponse(
                 mode="predict",
                 status="success",
-                message="Tahminler başarıyla oluşturuldu.",
+                message="Tahminler oluşturuldu.",
                 predictions=predictions.tolist(),
                 model_info={
                     'model_type': model_data['model_type'],
                     'best_model': model_data['best_model'],
                     'metrics': model_data['metrics'],
-                    'feature_importance': model_data['feature_importance'],
-                    'timestamp': model_data['timestamp'],
-                    'target_column': model_data['target_column'],
-                    'numeric_features': model_data['numeric_features'],
-                    'categorical_features': model_data['categorical_features']
+                    'timestamp': model_data['timestamp']
                 },
                 timestamp=datetime.now().isoformat()
             )
-        else:
-            return MLResponse(
-                mode=mode,
-                status="error",
-                message="Geçersiz mode değeri, sadece 'train' veya 'predict' olabilir.",
-                timestamp=datetime.now().isoformat()
-            )
+
     except Exception as e:
-        logger.error(f"ML işlemi sırasında hata: {str(e)}")
+        logger.error(f"ML işlemi hatası: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/retrain")
-async def retrain_model(background_tasks: BackgroundTasks):
-    def run_retrain():
-        import subprocess
-        try:
-            retrain_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "retrain.py")
-            result = subprocess.run(
-                [sys.executable, retrain_script],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            logger.info("Retrain scripti başarıyla çalıştı:\n" + result.stdout)
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Retrain scripti hata verdi:\n{e.stderr}")
-
-    background_tasks.add_task(run_retrain)
-    return {"status": "success", "message": "Retrain işlemi arka planda başlatıldı."}
 
 @app.get("/")
 async def root():
     return {
         "message": "ML Pipeline API'sine hoş geldiniz",
         "endpoints": {
-            "/ml": "CSV dosyası yükleyip train veya predict işlemi yapmak için (mode=train veya mode=predict)",
-            "/retrain": "Manuel retrain işlemi başlatmak için"
+            "/ml": "Train veya predict için .csv yükleyin",
+            "/retrain": "retrain.py çağırır"
         }
     }
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
