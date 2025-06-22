@@ -83,7 +83,7 @@ async def ml_operation(
             X_train_scaled, X_test_scaled, y_train, y_test = preprocess_data(df, target_column)
 
             pipeline = MLPipeline(
-                numeric_features=[],  # artık preprocessing yaptı
+                numeric_features=[],
                 categorical_features=[],
                 target_column=target_column,
                 model_name='auto',
@@ -127,7 +127,11 @@ async def ml_operation(
             columns = model_data['columns']
             scaler = model_data['scaler']
 
-            df = df[columns]  # sadece eğitimdeki feature'lar
+            # Tahmin verisinden hedef sütunı çıkar
+            if target_column in df.columns:
+                df = df.drop(columns=[target_column])
+
+            df = df[columns]  # sadece egitimdeki feature'lar
             df = handle_missing_values(df)
             df_scaled = scaler.transform(df)
 
