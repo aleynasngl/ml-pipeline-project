@@ -69,6 +69,10 @@ async def ml_operation(
         contents = await file.read()
         df = pd.read_csv(io.BytesIO(contents))
 
+        df.columns = df.columns.str.strip()
+        df = df.loc[:, ~df.columns.duplicated()]
+        df = df.dropna(axis=1, how='all')
+
         unnamed_cols = [col for col in df.columns if 'Unnamed' in col]
         if unnamed_cols:
             df = df.drop(columns=unnamed_cols)
@@ -77,7 +81,7 @@ async def ml_operation(
         if mode == "train":
             from src.pipeline import MLPipeline
 
-            possible_targets = [col for col in df.columns if 'diagnosis' in col.lower()]
+            possible_targets = [col for col in df.columns if 'diagnosis' in col.lower() or col.lower() == 'target']
             target_column = possible_targets[0] if possible_targets else df.columns[-1]
 
             value_maps = {}
