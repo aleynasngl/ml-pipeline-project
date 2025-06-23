@@ -127,8 +127,9 @@ async def ml_operation(
             columns = model_data['columns']
             scaler = model_data['scaler']
 
-            if target_column in df.columns:
-                df = df.drop(columns=[target_column])
+            df.columns = df.columns.str.strip()
+            if target_column.strip() in df.columns:
+                df = df.drop(columns=[target_column.strip()])
 
             df = handle_missing_values(df)
 
@@ -140,7 +141,9 @@ async def ml_operation(
                     detail=f"Tahmin verisinde eksik kolon(lar) var: {missing}"
                 )
 
+            # Fazla kolonları at
             df = df[columns]
+
             df_scaled = scaler.transform(df)
             predictions = model.predict(df_scaled)
 
