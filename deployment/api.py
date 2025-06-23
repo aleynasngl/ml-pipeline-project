@@ -50,16 +50,18 @@ def upload_model_to_gcs(local_path: str, bucket_path: str):
     blob.upload_from_filename(local_path)
     logger.info(f"Model {bucket_path} olarak GCS’ye yüklendi.")
 
-def download_best_model_from_gcs():
-    bucket = storage_client.bucket(GCS_BUCKET_NAME)
-    blob = bucket.blob(BEST_MODEL_PATH_IN_BUCKET)
-    if not os.path.exists(LOCAL_MODEL_CACHE):
-        logger.info("En iyi model GCS’den indiriliyor...")
-        blob.download_to_filename(LOCAL_MODEL_CACHE)
+def get_best_model():
+    if os.path.exists(LOCAL_MODEL_CACHE):
+        logger.info("Local model bulundu, predict için o kullanılacak.")
+        model_data = joblib.load(LOCAL_MODEL_CACHE)
+        return model_data
     else:
-        logger.info("Model cache’den yükleniyor...")
-    model_data = joblib.load(LOCAL_MODEL_CACHE)
-    return model_data
+        logger.info("Local model yok, GCS'den indiriliyor...")
+        bucket = storage_client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(BEST_MODEL_PATH_IN_BUCKET)
+        blob.download_to_filename(LOCAL_MODEL_CACHE)
+        model_data = joblib.load(LOCAL_MODEL_CACHE)
+        return model_data
 
 @app.post("/ml", response_model=MLResponse)
 async def ml_operation(
@@ -121,7 +123,7 @@ async def ml_operation(
             )
 
         elif mode == "predict":
-            model_data = download_best_model_from_gcs()
+            model_data = get_best_model()
             model = model_data['model']
             target_column = model_data['target_column']
             columns = model_data['columns']
