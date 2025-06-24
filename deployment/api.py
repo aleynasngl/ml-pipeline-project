@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 import numpy as np
 import joblib
@@ -6,22 +6,24 @@ import logging
 import pandas as pd
 from typing import List, Dict, Any, Optional, Literal
 import os
-import sys
-from datetime import datetime
 import io
+from datetime import datetime
 from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import storage
 from data.preprocessing import preprocess_data, handle_missing_values
 
+# Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# FastAPI App
 app = FastAPI(
     title="ML Pipeline API",
     description="ML Pipeline API - Train ve Predict destekleniyor",
     version="1.0.0"
 )
 
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -30,12 +32,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Google Cloud Storage setup
 GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME", "ml-pipeline-models")
 BEST_MODEL_PATH_IN_BUCKET = "models/best_model.joblib"
 LOCAL_MODEL_CACHE = "/tmp/best_model.joblib"
-
 storage_client = storage.Client()
 
+# API response model
 class MLResponse(BaseModel):
     mode: str
     status: str
@@ -44,12 +47,14 @@ class MLResponse(BaseModel):
     predictions: Optional[List[Any]] = None
     timestamp: str
 
+# Model upload
 def upload_model_to_gcs(local_path: str, bucket_path: str):
     bucket = storage_client.bucket(GCS_BUCKET_NAME)
     blob = bucket.blob(bucket_path)
     blob.upload_from_filename(local_path)
     logger.info(f"Model {bucket_path} olarak GCS’ye yüklendi.")
 
+# Model yükleme (önce local, sonra GCS)
 def get_best_model():
     if os.path.exists(LOCAL_MODEL_CACHE):
         logger.info("Local model bulundu, predict için o kullanılacak.")
@@ -63,6 +68,7 @@ def get_best_model():
         model_data = joblib.load(LOCAL_MODEL_CACHE)
         return model_data
 
+# ML Endpoint
 @app.post("/ml", response_model=MLResponse)
 async def ml_operation(
     file: UploadFile = File(...),
@@ -80,10 +86,22 @@ async def ml_operation(
             from src.pipeline import MLPipeline
 
             target_column = df.columns[-1]
-            problem_type = "classification" if df[target_column].nunique() <= 10 else "regression"
 
+            # Sağlam problem türü belirleme
+            if df[target_column].dtype == 'object':
+                problem_type = "classification"
+            elif pd.api.types.is_numeric_dtype(df[target_column]):
+                if df[target_column].nunique() <= 10 and all(df[target_column] % 1 == 0):
+                    problem_type = "classification"
+                else:
+                    problem_type = "regression"
+            else:
+                problem_type = "classification"
+
+            # Veriyi işleme
             X_train_scaled, X_test_scaled, y_train, y_test, scaler, used_columns = preprocess_data(df, target_column)
 
+            # Pipeline başlat
             pipeline = MLPipeline(
                 numeric_features=[],
                 categorical_features=[],
@@ -129,13 +147,12 @@ async def ml_operation(
             columns = model_data['columns']
             scaler = model_data['scaler']
 
-            df.columns = df.columns.str.strip()
             if target_column.strip() in df.columns:
                 df = df.drop(columns=[target_column.strip()])
 
             df = handle_missing_values(df)
 
-            # Eksik kolon kontrolü
+            # Kolon kontrolü
             missing = [col for col in columns if col not in df.columns]
             if missing:
                 raise HTTPException(
@@ -143,9 +160,7 @@ async def ml_operation(
                     detail=f"Tahmin verisinde eksik kolon(lar) var: {missing}"
                 )
 
-            # Fazla kolonları at
             df = df[columns]
-
             df_scaled = scaler.transform(df)
             predictions = model.predict(df_scaled)
 
@@ -167,6 +182,7 @@ async def ml_operation(
         logger.error(f"ML işlemi hatası: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# Ana sayfa
 @app.get("/")
 async def root():
     return {
