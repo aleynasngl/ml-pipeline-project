@@ -87,7 +87,7 @@ async def ml_operation(
 
             target_column = df.columns[-1]
 
-            # Sağlam problem türü belirleme
+            # Problem tipi belirleme
             if df[target_column].dtype == 'object':
                 problem_type = "classification"
             elif pd.api.types.is_numeric_dtype(df[target_column]):
@@ -98,19 +98,21 @@ async def ml_operation(
             else:
                 problem_type = "classification"
 
-            # Veriyi işleme
+            # Veri ön işleme
             X_train_scaled, X_test_scaled, y_train, y_test, scaler, used_columns = preprocess_data(df, target_column)
 
-            # Pipeline başlat
             pipeline = MLPipeline(
-                numeric_features=[],
+                numeric_features=[],  # varsayılan boş geçildi ama pipeline içinden alınabilir hale getirilebilir
                 categorical_features=[],
                 target_column=target_column,
                 model_name='auto',
                 problem_type=problem_type
             )
 
-            results = pipeline.auto_train_preprocessed(X_train_scaled, y_train, X_test_scaled, y_test)
+            # NOTE: auto_train_preprocessed yerine auto_train kullanılıyor artık
+            df[target_column] = df[target_column].astype(y_train.dtype)
+            combined = pd.concat([X_train_scaled, y_train], axis=1)
+            results = pipeline.auto_train(combined)
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             model_data = {
@@ -124,8 +126,8 @@ async def ml_operation(
                 'columns': used_columns
             }
 
-            joblib.dump(model_data, "/tmp/best_model.joblib")
-            upload_model_to_gcs("/tmp/best_model.joblib", BEST_MODEL_PATH_IN_BUCKET)
+            joblib.dump(model_data, LOCAL_MODEL_CACHE)
+            upload_model_to_gcs(LOCAL_MODEL_CACHE, BEST_MODEL_PATH_IN_BUCKET)
 
             return MLResponse(
                 mode="train",
@@ -147,22 +149,38 @@ async def ml_operation(
             columns = model_data['columns']
             scaler = model_data['scaler']
 
+            logger.info(f"Gelen verideki kolonlar: {df.columns.tolist()}")
+            logger.info(f"Beklenen kolonlar: {columns}")
+            logger.info(f"Target kolon: {target_column}")
+
             if target_column.strip() in df.columns:
                 df = df.drop(columns=[target_column.strip()])
+                logger.info(f"Target kolonu '{target_column}' tahmin verisinden çıkarıldı.")
 
             df = handle_missing_values(df)
 
             # Kolon kontrolü
             missing = [col for col in columns if col not in df.columns]
             if missing:
+                logger.error(f"Eksik kolonlar: {missing}")
                 raise HTTPException(
                     status_code=400,
                     detail=f"Tahmin verisinde eksik kolon(lar) var: {missing}"
                 )
 
             df = df[columns]
-            df_scaled = scaler.transform(df)
-            predictions = model.predict(df_scaled)
+
+            try:
+                df_scaled = scaler.transform(df)
+            except Exception as e:
+                logger.error(f"Scaler transform hatası: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Veri ölçekleme hatası: {str(e)}")
+
+            try:
+                predictions = model.predict(df_scaled)
+            except Exception as e:
+                logger.error(f"Tahmin hatası: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Tahmin sırasında hata oluştu: {str(e)}")
 
             return MLResponse(
                 mode="predict",
