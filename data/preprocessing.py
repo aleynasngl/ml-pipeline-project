@@ -15,7 +15,7 @@ def preprocess_data(
     target_column: str,
     test_size: float = 0.2,
     random_state: int = 42
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, StandardScaler, list]:
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, StandardScaler, list]:
     try:
         X = data.drop(columns=[target_column])
         y = data[target_column]
@@ -25,8 +25,8 @@ def preprocess_data(
         )
 
         scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
-        X_test_scaled = scaler.transform(X_test)
+        X_train_scaled = pd.DataFrame(scaler.fit_transform(X_train), columns=X.columns)
+        X_test_scaled = pd.DataFrame(scaler.transform(X_test), columns=X.columns)
 
         return X_train_scaled, X_test_scaled, y_train, y_test, scaler, X.columns.tolist()
 

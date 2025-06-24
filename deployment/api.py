@@ -47,26 +47,34 @@ class MLResponse(BaseModel):
     predictions: Optional[List[Any]] = None
     timestamp: str
 
-# Model upload
+# Model upload with error handling
 def upload_model_to_gcs(local_path: str, bucket_path: str):
-    bucket = storage_client.bucket(GCS_BUCKET_NAME)
-    blob = bucket.blob(bucket_path)
-    blob.upload_from_filename(local_path)
-    logger.info(f"Model {bucket_path} olarak GCS’ye yüklendi.")
+    try:
+        bucket = storage_client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(bucket_path)
+        blob.upload_from_filename(local_path)
+        logger.info(f"Model {bucket_path} olarak GCS’ye yüklendi.")
+    except Exception as e:
+        logger.error(f"Model GCS'ye yüklenirken hata: {e}")
+        raise HTTPException(status_code=500, detail=f"Model GCS'ye yüklenirken hata: {str(e)}")
 
 # Model yükleme (önce local, sonra GCS)
 def get_best_model():
-    if os.path.exists(LOCAL_MODEL_CACHE):
-        logger.info("Local model bulundu, predict için o kullanılacak.")
-        model_data = joblib.load(LOCAL_MODEL_CACHE)
-        return model_data
-    else:
-        logger.info("Local model yok, GCS'den indiriliyor...")
-        bucket = storage_client.bucket(GCS_BUCKET_NAME)
-        blob = bucket.blob(BEST_MODEL_PATH_IN_BUCKET)
-        blob.download_to_filename(LOCAL_MODEL_CACHE)
-        model_data = joblib.load(LOCAL_MODEL_CACHE)
-        return model_data
+    try:
+        if os.path.exists(LOCAL_MODEL_CACHE):
+            logger.info("Local model bulundu, predict için o kullanılacak.")
+            model_data = joblib.load(LOCAL_MODEL_CACHE)
+            return model_data
+        else:
+            logger.info("Local model yok, GCS'den indiriliyor...")
+            bucket = storage_client.bucket(GCS_BUCKET_NAME)
+            blob = bucket.blob(BEST_MODEL_PATH_IN_BUCKET)
+            blob.download_to_filename(LOCAL_MODEL_CACHE)
+            model_data = joblib.load(LOCAL_MODEL_CACHE)
+            return model_data
+    except Exception as e:
+        logger.error(f"Model yüklenirken hata: {e}")
+        raise HTTPException(status_code=500, detail=f"Model yüklenirken hata: {str(e)}")
 
 # ML Endpoint
 @app.post("/ml", response_model=MLResponse)
@@ -80,10 +88,10 @@ async def ml_operation(
         df.columns = df.columns.str.strip()
         df = df.dropna(axis=1, how='all')
         df = df.loc[:, ~df.columns.duplicated()]
-        df = handle_missing_values(df)
+        df = handle_missing_values(df)  # eksik değerler dolduruluyor
 
         if mode == "train":
-            from src.pipeline import MLPipeline
+            from src.pipeline import MLPipeline  # pipeline modülünün varlığı önemli
 
             target_column = df.columns[-1]
 
@@ -98,28 +106,37 @@ async def ml_operation(
             else:
                 problem_type = "classification"
 
-            # Veri ön işleme
+            # Ön işleme
             X_train_scaled, X_test_scaled, y_train, y_test, scaler, used_columns = preprocess_data(df, target_column)
 
             pipeline = MLPipeline(
-                numeric_features=[],  # varsayılan boş geçildi ama pipeline içinden alınabilir hale getirilebilir
+                numeric_features=[],  # Gerekirse pipeline içinde güncelle
                 categorical_features=[],
                 target_column=target_column,
                 model_name='auto',
                 problem_type=problem_type
             )
 
-            # NOTE: auto_train_preprocessed yerine auto_train kullanılıyor artık
+            # y_train tipi ile uyum için df[target_column] dönüşümü
             df[target_column] = df[target_column].astype(y_train.dtype)
-            combined = pd.concat([X_train_scaled, y_train], axis=1)
+
+            # auto_train için DataFrame oluşturulması
+            combined = pd.concat([
+                pd.DataFrame(X_train_scaled, columns=used_columns),
+                y_train.reset_index(drop=True)
+            ], axis=1)
+
             results = pipeline.auto_train(combined)
+
+            # Metrics içindeki değerlerin float olduğundan emin ol
+            metrics_serializable = {k: float(v) for k, v in results['metrics'].items()}
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             model_data = {
                 'model': pipeline.best_model,
                 'model_type': problem_type,
                 'best_model': results['best_model'],
-                'metrics': results['metrics'],
+                'metrics': metrics_serializable,
                 'timestamp': timestamp,
                 'target_column': target_column,
                 'scaler': scaler,
@@ -127,6 +144,10 @@ async def ml_operation(
             }
 
             joblib.dump(model_data, LOCAL_MODEL_CACHE)
+            if not os.path.exists(LOCAL_MODEL_CACHE):
+                logger.error("Model dosyası kaydedilemedi.")
+                raise HTTPException(status_code=500, detail="Model dosyası kaydedilemedi.")
+
             upload_model_to_gcs(LOCAL_MODEL_CACHE, BEST_MODEL_PATH_IN_BUCKET)
 
             return MLResponse(
@@ -136,7 +157,7 @@ async def ml_operation(
                 model_info={
                     'model_type': problem_type,
                     'best_model': results['best_model'],
-                    'metrics': results['metrics'],
+                    'metrics': metrics_serializable,
                     'timestamp': timestamp
                 },
                 timestamp=timestamp
@@ -159,7 +180,6 @@ async def ml_operation(
 
             df = handle_missing_values(df)
 
-            # Kolon kontrolü
             missing = [col for col in columns if col not in df.columns]
             if missing:
                 logger.error(f"Eksik kolonlar: {missing}")

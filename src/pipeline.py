@@ -91,9 +91,8 @@ class MLPipeline:
         if self.problem_type:
             return self.problem_type
         unique_values = np.unique(y)
-        if len(unique_values) <= 10:
-            return 'classification'
-        elif len(unique_values) > 10 and np.issubdtype(y.dtype, np.number):
+        # Eğer hedef değişken sayısal ve çok sınıflı değilse regresyon, değilse sınıflandırma
+        if pd.api.types.is_numeric_dtype(y) and len(unique_values) > 20:
             return 'regression'
         else:
             return 'classification'
@@ -107,10 +106,27 @@ class MLPipeline:
     def _get_model_params(self, model_name: str) -> Dict[str, Any]:
         return self.model_params[model_name]
 
+    def get_feature_names(self) -> List[str]:
+        preprocessor = self.pipeline.named_steps['preprocessor']
+        feature_names = []
+
+        # Numeric feature isimleri
+        if 'num' in preprocessor.named_transformers_:
+            feature_names.extend(self.numeric_features)
+
+        # Kategorik feature isimleri (OneHotEncoder sonrası)
+        if 'cat' in preprocessor.named_transformers_:
+            cat_transformer = preprocessor.named_transformers_['cat']
+            ohe = cat_transformer.named_steps['onehot']
+            ohe_features = ohe.get_feature_names_out(self.categorical_features)
+            feature_names.extend(ohe_features.tolist())
+
+        return feature_names
+
     def _calculate_feature_importance(self, X: np.ndarray, y: np.ndarray) -> Dict[str, float]:
         self.feature_importance_model.fit(X, y)
         importance = self.feature_importance_model.feature_importances_
-        feature_names = self.numeric_features + self.categorical_features
+        feature_names = self.get_feature_names()
         return dict(zip(feature_names, importance))
 
     def auto_train(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -149,6 +165,8 @@ class MLPipeline:
                 }
                 score = metric_results['accuracy']
 
+            logger.info(f"{model_name} modeli için skor: {score}")
+
             if score > best_score:
                 best_score = score
                 best_model = model
@@ -169,4 +187,5 @@ class MLPipeline:
     def predict(self, data: pd.DataFrame) -> np.ndarray:
         if self.best_model is None:
             raise ValueError("No trained model available")
-        return self.best_model.predict(data)
+        processed = self.pipeline.transform(data)
+        return self.best_model.predict(processed)
