@@ -3,12 +3,11 @@ import logging
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from typing import Dict, Any, List, Tuple, Callable
+from typing import Dict, Any, List, Callable
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.impute import SimpleImputer
-from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     mean_squared_error, r2_score, mean_absolute_error
@@ -18,7 +17,6 @@ from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.svm import SVC, SVR
 from xgboost import XGBClassifier, XGBRegressor
 import joblib
-import json
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -70,6 +68,7 @@ class MLPipeline:
             'xgb': {'n_estimators': 100, 'max_depth': 5, 'random_state': 42}
         }
 
+        # Feature importance için RandomForestRegressor kullanılır
         self.feature_importance_model = RandomForestRegressor(n_estimators=100, random_state=42)
 
     def _create_pipeline(self) -> Pipeline:
@@ -91,7 +90,7 @@ class MLPipeline:
         if self.problem_type:
             return self.problem_type
         unique_values = np.unique(y)
-        # Eğer hedef değişken sayısal ve çok sınıflı değilse regresyon, değilse sınıflandırma
+        # Sayısal hedef ve çok sınıflı değilse regresyon, aksi halde sınıflandırma
         if pd.api.types.is_numeric_dtype(y) and len(unique_values) > 20:
             return 'regression'
         else:
@@ -110,11 +109,11 @@ class MLPipeline:
         preprocessor = self.pipeline.named_steps['preprocessor']
         feature_names = []
 
-        # Numeric feature isimleri
+        # Sayısal özellikler
         if 'num' in preprocessor.named_transformers_:
             feature_names.extend(self.numeric_features)
 
-        # Kategorik feature isimleri (OneHotEncoder sonrası)
+        # Kategorik özellikler (OneHotEncoder sonrası)
         if 'cat' in preprocessor.named_transformers_:
             cat_transformer = preprocessor.named_transformers_['cat']
             ohe = cat_transformer.named_steps['onehot']
@@ -134,9 +133,11 @@ class MLPipeline:
         y = df[self.target_column]
         problem_type = self._determine_problem_type(y)
         logger.info(f"Problem tipi belirlendi: {problem_type}")
+
         X_processed = self.pipeline.fit_transform(X)
         metrics = self._get_metrics(problem_type)
         model_list = ['random_forest', 'linear_regression', 'svm', 'xgb']
+
         best_model = None
         best_score = -float('inf')
         best_model_name = None
@@ -175,6 +176,7 @@ class MLPipeline:
 
         self.best_model = best_model
         self.best_score = best_score
+
         feature_importance = self._calculate_feature_importance(X_processed, y)
 
         return {
